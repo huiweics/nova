@@ -6953,7 +6953,7 @@ class ComputeAPIUnitTestCase(_ComputeAPIUnitTestMixIn, test.NoDBTestCase):
             self.context, instance, uuids.host, allow_cross_cell_resize=False)
         self.assertIs(node, mock_cn_get.return_value)
         mock_cn_get.assert_called_once_with(
-            self.context, uuids.host, use_slave=True)
+            self.context, uuids.host, use_subordinate=True)
 
     @mock.patch('nova.objects.HostMapping.get_by_host',
                 side_effect=exception.HostMappingNotFound(name=uuids.host))
@@ -6990,7 +6990,7 @@ class ComputeAPIUnitTestCase(_ComputeAPIUnitTestMixIn, test.NoDBTestCase):
         # cell-targeted context
         mock_cn_get.assert_called_once_with(
             mock_target_cell.return_value.__enter__.return_value,
-            uuids.host, use_slave=True)
+            uuids.host, use_subordinate=True)
 
     def _test_get_migrations_sorted_filter_duplicates(self, migrations,
                                                       expected):
