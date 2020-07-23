@@ -336,7 +336,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
         get_avail_nodes.return_value = avail_nodes
         self.compute.update_available_resource(self.context, startup=True)
         get_db_nodes.assert_called_once_with(self.context, avail_nodes,
-                                             use_slave=True, startup=True)
+                                             use_subordinate=True, startup=True)
         self.assertEqual(len(avail_nodes_l), update_mock.call_count)
         update_mock.assert_has_calls(
             [mock.call(self.context, node, startup=True)
@@ -399,7 +399,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
         self.assertEqual([], self.compute._get_compute_nodes_in_db(
             self.context, {'fake-node'}, startup=True))
         get_all_by_host.assert_called_once_with(
-            self.context, self.compute.host, use_slave=False)
+            self.context, self.compute.host, use_subordinate=False)
         self.assertTrue(mock_log.warning.called)
         self.assertFalse(mock_log.error.called)
 
@@ -415,7 +415,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
         self.assertEqual([], self.compute._get_compute_nodes_in_db(
             self.context, set()))
         get_all_by_host.assert_called_once_with(
-            self.context, self.compute.host, use_slave=False)
+            self.context, self.compute.host, use_subordinate=False)
         mock_log.assert_not_called()
 
     def _trusted_certs_setup_instance(self, include_trusted_certs=True):
@@ -2010,7 +2010,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
                          [x['uuid'] for x in result])
         expected_filters = {'uuid': driver_uuids}
         mock_instance_list.assert_called_with(self.context, expected_filters,
-                                              use_slave=True)
+                                              use_subordinate=True)
 
     @mock.patch('nova.objects.InstanceList.get_by_filters')
     def test_get_instances_on_driver_empty(self, mock_instance_list):
@@ -2065,7 +2065,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
                          [x['uuid'] for x in result])
         expected_filters = {'host': self.compute.host}
         mock_instance_list.assert_called_with(self.context, expected_filters,
-                                              use_slave=True)
+                                              use_subordinate=True)
 
     @mock.patch.object(compute_utils, 'notify_usage_exists')
     @mock.patch.object(objects.TaskLog, 'end_task')
@@ -2105,7 +2105,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
             self.compute._sync_power_states(mock.sentinel.context)
             mock_get.assert_called_with(mock.sentinel.context,
                                         self.compute.host, expected_attrs=[],
-                                        use_slave=True)
+                                        use_subordinate=True)
             mock_spawn.assert_called_once_with(mock.ANY, instance)
 
     @mock.patch('nova.objects.InstanceList.get_by_host', new=mock.Mock())
@@ -2139,7 +2139,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
                                            vm_states.ACTIVE)
         self.compute._sync_instance_power_state(self.context, instance,
                                                 power_state.RUNNING)
-        mock_refresh.assert_called_once_with(use_slave=False)
+        mock_refresh.assert_called_once_with(use_subordinate=False)
 
     @mock.patch.object(fake_driver.FakeDriver, 'get_info')
     @mock.patch.object(objects.Instance, 'refresh')
@@ -2154,7 +2154,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
         self.compute._sync_instance_power_state(self.context, instance,
                                                 power_state.SHUTDOWN)
         self.assertEqual(instance.power_state, power_state.SHUTDOWN)
-        mock_refresh.assert_called_once_with(use_slave=False)
+        mock_refresh.assert_called_once_with(use_subordinate=False)
         self.assertTrue(mock_save.called)
         mock_get_info.assert_called_once_with(instance, use_cache=False)
 
@@ -2189,7 +2189,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
                                                power_state.CRASHED)):
                         mock_get_info.assert_called_once_with(instance,
                                                               use_cache=False)
-            mock_refresh.assert_called_once_with(use_slave=False)
+            mock_refresh.assert_called_once_with(use_subordinate=False)
             self.assertTrue(mock_save.called)
 
     def test_sync_instance_power_state_to_stop(self):
@@ -2246,7 +2246,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
             mock_sync_power_state.assert_called_once_with(self.context,
                                                           db_instance,
                                                           power_state.NOSTATE,
-                                                          use_slave=True)
+                                                          use_subordinate=True)
 
     def test_cleanup_running_deleted_instances_virt_driver_not_ready(self):
         """Tests the scenario that the driver raises VirtDriverNotReady
@@ -2279,13 +2279,13 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
             def save(self):
                 pass
 
-        def _fake_get(ctx, filter, expected_attrs, use_slave):
+        def _fake_get(ctx, filter, expected_attrs, use_subordinate):
             mock_get.assert_called_once_with(
                 {'read_deleted': 'yes'},
                 {'deleted': True, 'soft_deleted': False, 'host': 'fake-mini',
                  'cleaned': False},
                 expected_attrs=['system_metadata'],
-                use_slave=True)
+                use_subordinate=True)
             return [a, b, c]
 
         a = FakeInstance(uuids.instanceA, 'apple', {'clean_attempts': '100'})
@@ -5377,7 +5377,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
             self.compute._poll_bandwidth_usage(self.context)
             get_by_uuid_mac.assert_called_once_with(self.context,
                     uuids.instance, 'fake-mac',
-                    start_period=0, use_slave=True)
+                    start_period=0, use_subordinate=True)
             # NOTE(sdague): bw_usage_update happens at some time in
             # the future, so what last_refreshed is irrelevant.
             bw_usage_update.assert_called_once_with(self.context,
@@ -5482,7 +5482,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
         self.compute._sync_scheduler_instance_info(self.context)
         mock_get_by_host.assert_called_once_with(
                 fake_elevated, self.compute.host, expected_attrs=[],
-                use_slave=True)
+                use_subordinate=True)
         mock_sync.assert_called_once_with(fake_elevated, self.compute.host,
                                           exp_uuids)
 

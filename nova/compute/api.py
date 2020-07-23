@@ -3836,10 +3836,10 @@ class API(base.Base):
             with nova_context.target_cell(context, hm.cell_mapping) as cctxt:
                 node = objects.ComputeNode.\
                     get_first_node_by_host_for_old_compat(
-                        cctxt, host_name, use_slave=True)
+                        cctxt, host_name, use_subordinate=True)
         else:
             node = objects.ComputeNode.get_first_node_by_host_for_old_compat(
-                context, host_name, use_slave=True)
+                context, host_name, use_subordinate=True)
 
         return node
 
