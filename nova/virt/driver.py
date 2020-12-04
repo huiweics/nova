@@ -376,6 +376,16 @@ class ComputeDriver(object):
         """
         raise NotImplementedError()
 
+    def upgrade(self, context, instance, vcpu, memory):
+        """hot upgrade insance vcpu and memory.
+
+        :param context: security context
+        :param instance: Instance object as returned by DB layer.
+        :param vcpu: how many vcpu to hotplug
+        :param memory: how many memory to hotplug.
+        """
+        raise NotImplementedError()
+
     def cleanup(self, context, instance, network_info, block_device_info=None,
                 destroy_disks=True, migrate_data=None, destroy_vifs=True):
         """Cleanup the instance resources .

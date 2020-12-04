@@ -2473,3 +2473,9 @@ class ReshapeFailed(NovaException):
 class ReshapeNeeded(NovaException):
     msg_fmt = _("Virt driver indicates that provider inventories need to be "
                 "moved.")
+
+class HotplugMemoryFailed(NovaException):
+    msg_fmt = _("Failed to hotplug memory to %(instance_uuid)s")
+
+class HotplugCpuFailed(NovaException):
+    msg_fmt = _("Failed to hotplug cpu to %(instance_uuid)s")

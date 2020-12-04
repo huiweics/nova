@@ -550,7 +550,7 @@ def _sort_possible_cpu_topologies(possible, wanttopology):
 
 
 def _get_desirable_cpu_topologies(flavor, image_meta, allow_threads=True,
-                                  numa_topology=None):
+                                  numa_topology=None, max_vcpus=0):
     """Identify desirable CPU topologies based for given constraints.
 
     Look at the properties set in the flavor extra specs and the image
@@ -577,8 +577,11 @@ def _get_desirable_cpu_topologies(flavor, image_meta, allow_threads=True,
     preferred, maximum = get_cpu_topology_constraints(flavor, image_meta)
     LOG.debug("Topology preferred %(preferred)s, maximum %(maximum)s",
               {"preferred": preferred, "maximum": maximum})
-
-    possible = _get_possible_cpu_topologies(flavor.vcpus,
+    if max_vcpus:
+        vcpus = max_vcpus
+    else:
+        vcpus = flavor.vcpus
+    possible = _get_possible_cpu_topologies(vcpus,
                                             maximum,
                                             allow_threads)
     LOG.debug("Possible topologies %s", possible)
@@ -612,7 +615,7 @@ def _get_desirable_cpu_topologies(flavor, image_meta, allow_threads=True,
 
 
 def get_best_cpu_topology(flavor, image_meta, allow_threads=True,
-                          numa_topology=None):
+                          numa_topology=None, max_vcpus=0):
     """Identify best CPU topology for given constraints.
 
     Look at the properties set in the flavor extra specs and the image
@@ -630,7 +633,8 @@ def get_best_cpu_topology(flavor, image_meta, allow_threads=True,
     :returns: an objects.VirtCPUTopology instance for best topology
     """
     return _get_desirable_cpu_topologies(flavor, image_meta,
-                                         allow_threads, numa_topology)[0]
+                                         allow_threads, numa_topology,
+                                         max_vcpus)[0]
 
 
 def _numa_cell_supports_pagesize_request(host_cell, inst_cell):
@@ -1378,15 +1382,15 @@ def _get_cpu_thread_policy_constraint(flavor, image_meta):
     return policy
 
 
-def _get_numa_topology_auto(nodes, flavor):
-    if ((flavor.vcpus % nodes) > 0 or
-        (flavor.memory_mb % nodes) > 0):
+def _get_numa_topology_auto(nodes, flavor, cell_vcpus, cell_memory):
+    if ((cell_vcpus % nodes) > 0 or
+        (cell_memory % nodes) > 0):
         raise exception.ImageNUMATopologyAsymmetric()
 
     cells = []
     for node in range(nodes):
-        ncpus = int(flavor.vcpus / nodes)
-        mem = int(flavor.memory_mb / nodes)
+        ncpus = int(cell_vcpus / nodes)
+        mem = int(cell_memory / nodes)
         start = node * ncpus
         cpuset = set(range(start, start + ncpus))
 
@@ -1396,20 +1400,21 @@ def _get_numa_topology_auto(nodes, flavor):
     return objects.InstanceNUMATopology(cells=cells)
 
 
-def _get_numa_topology_manual(nodes, flavor, cpu_list, mem_list):
+def _get_numa_topology_manual(nodes, flavor, cpu_list, mem_list,
+                                         cell_vcpus, cell_memory):
     cells = []
     totalmem = 0
 
-    availcpus = set(range(flavor.vcpus))
+    availcpus = set(range(cell_vcpus))
 
     for node in range(nodes):
         mem = mem_list[node]
         cpuset = cpu_list[node]
 
         for cpu in cpuset:
-            if cpu > (flavor.vcpus - 1):
+            if cpu > (cell_vcpus - 1):
                 raise exception.ImageNUMATopologyCPUOutOfRange(
-                    cpunum=cpu, cpumax=(flavor.vcpus - 1))
+                    cpunum=cpu, cpumax=(cell_vcpus - 1))
 
             if cpu not in availcpus:
                 raise exception.ImageNUMATopologyCPUDuplicates(
@@ -1425,10 +1430,10 @@ def _get_numa_topology_manual(nodes, flavor, cpu_list, mem_list):
         raise exception.ImageNUMATopologyCPUsUnassigned(
             cpuset=str(availcpus))
 
-    if totalmem != flavor.memory_mb:
+    if totalmem != cell_memory:
         raise exception.ImageNUMATopologyMemoryOutOfRange(
             memsize=totalmem,
-            memtotal=flavor.memory_mb)
+            memtotal=flavor.cell_memory)
 
     return objects.InstanceNUMATopology(cells=cells)
 
@@ -1547,6 +1552,11 @@ def numa_get_constraints(flavor, image_meta):
     :returns: objects.InstanceNUMATopology, or None
     """
     numa_topology = None
+    flavor_max_vcpus = flavor.extra_specs.get('hw:vcpu_max', 0)
+    image_max_vcpus = image_meta.properties.get('hw_vcpu_max', 0)
+    max_vcpus = max(int(flavor_max_vcpus), int(image_max_vcpus))
+    cell_vcpus = max(max_vcpus, flavor.vcpus)
+    cell_memory = flavor.memory_mb
 
     nodes = _get_numa_node_count_constraint(flavor, image_meta)
     pagesize = _get_numa_pagesize_constraint(flavor, image_meta)
@@ -1569,10 +1579,10 @@ def numa_get_constraints(flavor, image_meta):
 
         if cpu_list is None:
             numa_topology = _get_numa_topology_auto(
-                nodes, flavor)
+                nodes, flavor, cell_vcpus, cell_memory)
         else:
             numa_topology = _get_numa_topology_manual(
-                nodes, flavor, cpu_list, mem_list)
+                nodes, flavor, cpu_list, mem_list, cell_vcpus, cell_memory)
 
         # We currently support same pagesize for all cells.
         for c in numa_topology.cells:
@@ -1607,8 +1617,8 @@ def numa_get_constraints(flavor, image_meta):
     else:
         single_cell = objects.InstanceNUMACell(
             id=0,
-            cpuset=set(range(flavor.vcpus)),
-            memory=flavor.memory_mb,
+            cpuset=set(range(cell_vcpus)),
+            memory=cell_memory,
             cpu_policy=cpu_policy,
             cpu_thread_policy=cpu_thread_policy)
         numa_topology = objects.InstanceNUMATopology(cells=[single_cell])

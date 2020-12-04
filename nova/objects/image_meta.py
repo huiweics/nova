@@ -306,6 +306,12 @@ class ImageMetaProps(base.NovaObject):
         # Number of guest NUMA nodes
         'hw_numa_nodes': fields.IntegerField(),
 
+        # max vcpu guest support, for hotplug
+        'hw_vcpu_max': fields.IntegerField(),
+
+        # Max guest physical memory support, for hotplug
+        'hw_mem_max': fields.IntegerField(),
+
         # Each list entry corresponds to a guest NUMA node and the
         # set members indicate CPUs for that node
         'hw_numa_cpus': fields.ListOfSetsOfIntegersField(),

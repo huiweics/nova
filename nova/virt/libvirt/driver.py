@@ -1052,6 +1052,48 @@ class LibvirtDriver(driver.ComputeDriver):
         self.cleanup(context, instance, network_info, block_device_info,
                      destroy_disks)
 
+    def upgrade(self, context, instance, vcpus, memory):
+        LOG.debug("upgrade instance %s" % instance.uuid)
+        guest = self._host.get_guest(instance)
+        dom = guest._domain
+        state = guest.get_power_state(self._host)
+        live = state in (power_state.RUNNING, power_state.PAUSED)
+        flags = True and libvirt.VIR_DOMAIN_AFFECT_CONFIG or 0
+        flags |= live and libvirt.VIR_DOMAIN_AFFECT_LIVE or 0
+
+        try:
+            current_vcpus = dom.vcpusFlags(0)
+            max_vcpus = dom.maxVcpus()
+            LOG.debug("current_vcpus %s  max_vcpus %s" % (current_vcpus, max_vcpus))
+            if vcpus > max_vcpus:
+                LOG.debug('vcpus %s exceeds max_vcpus %s, treat as max' % (vcpus, max_vcpus))
+                vcpus = max_vcpus
+            if vcpus < current_vcpus:
+                LOG.debug('not support hot unplug vcpu, ignore')
+            else:
+                dom.setVcpusFlags(vcpus, flags)
+        except libvirt.libvirtError:
+            LOG.error('hotplug cpu failed.',
+                      instance=instance, exc_info=True)
+            raise exception.HotplugCpuFailed(
+                    instance_uuid=instance.uuid)
+
+
+        try:
+            current_mem = int(dom.maxMemory()) / units.Ki
+            hotplug_mem = memory - current_mem
+            if hotplug_mem > 0:
+                conf = vconfig.LibvirtConfigGuestMemoryDeviceDIMM()
+                conf.size =  hotplug_mem
+                guest.attach_device(conf, persistent=True, live=live)
+            else:
+                LOG.debug('not support hot unplug memory, ignore')
+        except libvirt.libvirtError:
+            LOG.error('hotplug memory failed.',
+                      instance=instance, exc_info=True)
+            raise exception.HotplugMemoryFailed(
+                    instance_uuid=instance.uuid)
+
     def _undefine_domain(self, instance):
         try:
             guest = self._host.get_guest(instance)
@@ -3975,14 +4017,16 @@ class LibvirtDriver(driver.ComputeDriver):
         return cpu
 
     def _get_guest_cpu_config(self, flavor, image_meta,
-                              guest_cpu_numa_config, instance_numa_topology):
+                              guest_cpu_numa_config, instance_numa_topology,
+                              max_vcpus):
         cpu = self._get_guest_cpu_model_config()
 
         if cpu is None:
             return None
 
         topology = hardware.get_best_cpu_topology(
-                flavor, image_meta, numa_topology=instance_numa_topology)
+                flavor, image_meta, numa_topology=instance_numa_topology,
+                max_vcpus=max_vcpus)
 
         cpu.sockets = topology.sockets
         cpu.cores = topology.cores
@@ -5256,6 +5300,27 @@ class LibvirtDriver(driver.ComputeDriver):
             guest_numa_config.numatune,
             flavor)
 
+        flavor_max_memory = int(flavor.extra_specs.get('hw:mem_max', 0)) * units.Ki
+        image_max_memory = int(image_meta.properties.get('hw_mem_max', 0)) * units.Ki
+        guest.max_memory = max(int(flavor_max_memory), int(image_max_memory))
+        if guest.max_memory and guest.max_memory <= guest.memory:
+            LOG.debug('max memory not large flavor memory, ingore it')
+            guest.max_memory = 0
+
+        flavor_numa_nodes = flavor.extra_specs.get('hw:numa_nodes', 0)
+        image_numa_nodes = image_meta.properties.get('hw_numa_nodes', 0)
+        numa_nodes = max(int(flavor_numa_nodes), int(image_numa_nodes))
+        if not numa_nodes:
+            LOG.debug('memory hotplug needs at least one numa node, ingore it')
+            guest.max_memory = 0
+
+        flavor_max_vcpus = flavor.extra_specs.get('hw:vcpu_max', 0)
+        image_max_vcpus = image_meta.properties.get('hw_vcpu_max', 0)
+        guest.max_vcpus = max(int(flavor_max_vcpus), int(image_max_vcpus))
+        if guest.max_vcpus and guest.max_vcpus <= guest.vcpus:
+            LOG.debug('max vcpus not large flavor vcpus, ingore it')
+            guest.max_vcpus = 0
+
         guest.metadata.append(self._get_guest_config_meta(instance))
         guest.idmaps = self._get_guest_idmaps()
 
@@ -5266,7 +5331,7 @@ class LibvirtDriver(driver.ComputeDriver):
 
         guest.cpu = self._get_guest_cpu_config(
             flavor, image_meta, guest_numa_config.numaconfig,
-            instance.numa_topology)
+            instance.numa_topology, guest.max_vcpus)
 
         # Notes(yjiang5): we always sync the instance's vcpu model with
         # the corresponding config file.

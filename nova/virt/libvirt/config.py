@@ -143,6 +143,30 @@ class LibvirtConfigCapsNUMATopology(LibvirtConfigObject):
         return topo
 
 
+class LibvirtConfigGuestMemoryDeviceDIMM(LibvirtConfigObject):
+
+    def __init__(self, **kwargs):
+        super(LibvirtConfigGuestMemoryDeviceDIMM, self).__init__(
+            root_name="memory",
+            **kwargs)
+
+        self.size = 0
+
+    def parse_dom(self, xmldoc):
+        super(LibvirtConfigGuestMemoryDeviceDIMM, self).parse_dom(xmldoc)
+
+
+    def format_dom(self):
+        dimm = self._new_node("memory")
+        dimm.set("model", "dimm")
+        target = self._new_node("target")
+        mem_size = self._text_node("size", self.size)
+        mem_size.set("unit", "MiB")
+        target.append(mem_size)
+        target.append(self._text_node("node", 0))
+        dimm.append(target)
+        return dimm
+
 class LibvirtConfigCapsNUMACell(LibvirtConfigObject):
 
     def __init__(self, **kwargs):
@@ -2302,8 +2326,11 @@ class LibvirtConfigGuest(LibvirtConfigObject):
         self.memory = 500 * units.Mi
         self.membacking = None
         self.memtune = None
+        self.max_memory = 0
+        self.max_memory_slots = 16
         self.numatune = None
         self.vcpus = 1
+        self.max_vcpus = 0
         self.cpuset = None
         self.cpu = None
         self.cputune = None
@@ -2337,18 +2364,30 @@ class LibvirtConfigGuest(LibvirtConfigObject):
             root.append(self.memtune.format_dom())
         if self.numatune is not None:
             root.append(self.numatune.format_dom())
-        if self.cpuset is not None:
-            vcpu = self._text_node("vcpu", self.vcpus)
-            vcpu.set("cpuset", hardware.format_cpu_spec(self.cpuset))
-            root.append(vcpu)
-        else:
-            root.append(self._text_node("vcpu", self.vcpus))
 
         if len(self.metadata) > 0:
             metadata = etree.Element("metadata")
             for m in self.metadata:
                 metadata.append(m.format_dom())
             root.append(metadata)
+
+        if self.max_memory:
+            max_mem = self._text_node("maxMemory", self.max_memory)
+            max_mem.set("slots", str(self.max_memory_slots))
+            root.append(max_mem)
+        if self.max_vcpus:
+            vcpu = self._text_node("vcpu", self.max_vcpus)
+            vcpu.set("current", str(self.vcpus))
+            if self.cpuset is not None:
+                vcpu.set("cpuset", hardware.format_cpu_spec(self.cpuset))
+            root.append(vcpu)
+        else:
+            if self.cpuset is not None:
+                vcpu = self._text_node("vcpu", self.vcpus)
+                vcpu.set("cpuset", hardware.format_cpu_spec(self.cpuset))
+                root.append(vcpu)
+            else:
+                root.append(self._text_node("vcpu", self.vcpus))
 
     def _format_os(self, root):
         os = etree.Element("os")
